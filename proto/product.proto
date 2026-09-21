@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package bank.product.v1;
+
+service ProductService {
+  // Каталог продуктов
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+
+  // Условия продукта
+  rpc GetProductTerms(GetProductTermsRequest) returns (GetProductTermsResponse);
+
+  // Тарифные планы
+  rpc GetTariffPlan(GetTariffPlanRequest) returns (GetTariffPlanResponse);
+
+  // Генерация аналитического счёта
+  rpc GenerateAccountNumber(GenerateAccountNumberRequest) returns (GenerateAccountNumberResponse);
+
+  // Проверка доступности продукта для клиента
+  rpc CheckEligibility(CheckEligibilityRequest) returns (CheckEligibilityResponse);
+
+  // Расчёт персональной ставки
+  rpc CalculateRate(CalculateRateRequest) returns (CalculateRateResponse);
+}
+
+// ─── Product ───
+
+message Product {
+  string product_id = 1;
+  string product_code = 2;             // CONSUMER_ANN, SAVINGS_RUB, CARD_DEBIT
+  string product_name = 3;
+  string product_type = 4;             // current / deposit / loan / card
+  string currency_code = 5;
+  string status = 6;                   // active / inactive
+  int64 created_at = 7;
+}
+
+message GetProductRequest {
+  string product_code = 1;
+}
+
+message GetProductResponse {
+  Product product = 1;
+}
+
+message ListProductsRequest {
+  string product_type = 1;             // фильтр, может быть пустым
+  string currency_code = 2;
+}
+
+message ListProductsResponse {
+  repeated Product products = 1;
+}
+
+// ─── Terms ───
+
+message ProductTerms {
+  string product_code = 1;
+  string min_amount = 2;               // Decimal как строка
+  string max_amount = 3;
+  uint32 min_term_months = 4;
+  uint32 max_term_months = 5;
+  string base_rate = 6;                // % годовых
+  bool early_termination_allowed = 7;
+  uint32 early_termination_penalty_days = 8;
+  bool capitalization_allowed = 9;
+  bool top_up_allowed = 10;
+  string min_balance = 11;
+}
+
+message GetProductTermsRequest {
+  string product_code = 1;
+}
+
+message GetProductTermsResponse {
+  ProductTerms terms = 1;
+}
+
+// ─── Tariff ───
+
+message TariffPlan {
+  string tariff_id = 1;
+  string product_code = 2;
+  string tariff_name = 3;
+  string monthly_fee = 4;              // Decimal
+  uint32 free_transactions_per_month = 5;
+  string over_limit_fee = 6;           // Decimal за операцию сверх лимита
+  uint32 grace_period_days = 7;
+  string cashback_percent = 8;
+}
+
+message GetTariffPlanRequest {
+  string tariff_id = 1;
+}
+
+message GetTariffPlanResponse {
+  TariffPlan tariff = 1;
+}
+
+// ─── Account Number ───
+
+message GenerateAccountNumberRequest {
+  string product_code = 1;
+  string currency_code = 2;
+  string client_id = 3;
+}
+
+message GenerateAccountNumberResponse {
+  string account_number = 1;           // 20-значный номер
+  string balance_account = 2;          // 5-значный балансовый счёт (40817, 42307, 455...)
+}
+
+// ─── Eligibility ───
+
+message CheckEligibilityRequest {
+  string product_code = 1;
+  string client_id = 2;
+  string client_status = 3;            // active / blocked / closed
+  string requested_amount = 4;
+  string requested_term_months = 5;
+}
+
+message CheckEligibilityResponse {
+  bool eligible = 1;
+  string reason = 2;                   // если не eligible
+  repeated string conditions = 3;      // условия для клиента
+}
+
+// ─── Rate ───
+
+message CalculateRateRequest {
+  string product_code = 1;
+  string client_id = 2;
+  string requested_amount = 3;
+  string requested_term_months = 4;
+  string client_category = 5;          // standard / premium / vip
+}
+
+message CalculateRateResponse {
+  string base_rate = 1;
+  string personal_rate = 2;
+  string discount_reason = 3;
+}

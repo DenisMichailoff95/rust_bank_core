@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package bank.reference.v1;
+
+service ReferenceService {
+  // Валюты
+  rpc GetCurrency(GetCurrencyRequest) returns (GetCurrencyResponse);
+  rpc ListCurrencies(ListCurrenciesRequest) returns (ListCurrenciesResponse);
+
+  // Типы операций
+  rpc GetOperationType(GetOperationTypeRequest) returns (GetOperationTypeResponse);
+  rpc ListOperationTypes(ListOperationTypesRequest) returns (ListOperationTypesResponse);
+
+  // Принудительный перезапуск кэша (для админов)
+  rpc RefreshCache(RefreshCacheRequest) returns (RefreshCacheResponse);
+}
+
+message Currency {
+  string currency_code = 1;
+  uint32 numeric_code = 2;
+  string name = 3;
+  uint32 decimal_places = 4;
+  bool is_base = 5;
+}
+
+message GetCurrencyRequest {
+  string currency_code = 1;
+}
+
+message GetCurrencyResponse {
+  Currency currency = 1;
+}
+
+message ListCurrenciesRequest {}
+
+message ListCurrenciesResponse {
+  repeated Currency currencies = 1;
+}
+
+message OperationType {
+  string operation_code = 1;
+  string name = 2;
+  string direction = 3;            // debit / credit
+}
+
+message GetOperationTypeRequest {
+  string operation_code = 1;
+}
+
+message GetOperationTypeResponse {
+  OperationType operation_type = 1;
+}
+
+message ListOperationTypesRequest {}
+
+message ListOperationTypesResponse {
+  repeated OperationType operation_types = 1;
+}
+
+message RefreshCacheRequest {}
+
+message RefreshCacheResponse {
+  int32 currencies_count = 1;
+  int32 operation_types_count = 2;
+}

@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package bank.account.v1;
+
+service AccountService {
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+  rpc ListClientAccounts(ListClientAccountsRequest) returns (ListClientAccountsResponse);
+  rpc UpdateAccountStatus(UpdateAccountStatusRequest) returns (UpdateAccountStatusResponse);
+}
+
+message CreateAccountRequest {
+  string client_id = 1;
+  string currency_code = 2;        // RUB, USD, EUR
+  string account_type = 3;         // current, deposit, credit
+  string idempotency_key = 100;
+}
+
+message CreateAccountResponse {
+  string account_id = 1;
+  string account_number = 2;
+  string status = 3;
+}
+
+message GetAccountRequest {
+  string account_id = 1;
+}
+
+message GetAccountResponse {
+  string account_id = 1;
+  string client_id = 2;
+  string account_number = 3;
+  string account_type = 4;
+  string currency_code = 5;
+  string balance = 6;              // Decimal как строка
+  string status = 7;
+  string opened_at = 8;
+}
+
+message GetBalanceRequest {
+  string account_id = 1;
+}
+
+message GetBalanceResponse {
+  string account_id = 1;
+  string balance = 2;
+  string currency_code = 3;
+}
+
+message ListClientAccountsRequest {
+  string client_id = 1;
+}
+
+message ListClientAccountsResponse {
+  repeated GetAccountResponse accounts = 1;
+}
+
+message UpdateAccountStatusRequest {
+  string account_id = 1;
+  string new_status = 2;           // active / frozen / closed
+  string reason = 3;
+  string idempotency_key = 100;
+}
+
+message UpdateAccountStatusResponse {
+  string account_id = 1;
+  string old_status = 2;
+  string new_status = 3;
+}

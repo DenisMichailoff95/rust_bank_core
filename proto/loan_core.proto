@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package bank.loan_core.v1;
+
+service LoanCoreService {
+  // Открытие ссудного счёта под кредит
+  rpc OpenLoanAccount(OpenLoanAccountRequest) returns (OpenLoanAccountResponse);
+
+  // Выдача кредита: перечисление тела на счёт клиента
+  rpc DisburseLoan(DisburseLoanRequest) returns (DisburseLoanResponse);
+
+  // Начисление процентов за период (вызывается планировщиком мидла)
+  rpc AccrueInterest(AccrueInterestRequest) returns (AccrueInterestResponse);
+
+  // Погашение: тело + проценты + пени
+  rpc RepayLoan(RepayLoanRequest) returns (RepayLoanResponse);
+
+  // Перевод в просрочку
+  rpc MarkOverdue(MarkOverdueRequest) returns (MarkOverdueResponse);
+
+  // Расчёт резерва по МСФО
+  rpc CalculateProvision(CalculateProvisionRequest) returns (CalculateProvisionResponse);
+
+  // Получить состояние ссудного счёта
+  rpc GetLoanAccountState(GetLoanAccountStateRequest) returns (GetLoanAccountStateResponse);
+}
+
+// ─── Open Loan Account ───
+
+message OpenLoanAccountRequest {
+  string loan_id = 1;              // ID договора из мидла
+  string client_id = 2;            // UUID клиента
+  string currency_code = 3;        // RUB
+  string product_type = 4;         // consumer / mortgage / car / micro
+  string idempotency_key = 100;
+}
+
+message OpenLoanAccountResponse {
+  string loan_account_id = 1;      // UUID ссудного счёта
+  string account_number = 2;       // 20-значный номер
+  string status = 3;
+}
+
+// ─── Disburse ───
+
+message DisburseLoanRequest {
+  string loan_id = 1;
+  string loan_account_id = 2;      // ссудный счёт (куда учтём тело)
+  string client_account_id = 3;    // текущий счёт клиента (куда перечислим)
+  string amount = 4;               // Decimal как строка
+  string currency_code = 5;
+  string idempotency_key = 100;
+}
+
+message DisburseLoanResponse {
+  string transaction_id = 1;
+  string loan_account_balance = 2;
+  string status = 3;
+}
+
+// ─── Accrue Interest ───
+
+message AccrueInterestRequest {
+  string loan_id = 1;
+  string loan_account_id = 2;
+  string accrual_date = 3;         // ISO 8601
+  string annual_rate = 4;          // % годовых, Decimal как строка
+  string idempotency_key = 100;
+}
+
+message AccrueInterestResponse {
+  string transaction_id = 1;
+  string accrued_amount = 2;       // начислено за период
+  string total_interest_due = 3;   // накопленные проценты
+  string status = 4;
+}
+
+// ─── Repay ───
+
+message RepayLoanRequest {
+  string loan_id = 1;
+  string loan_account_id = 2;
+  string client_account_id = 3;
+  string principal_amount = 4;     // тело
+  string interest_amount = 5;      // проценты
+  string penalty_amount = 6;       // пени
+  string currency_code = 7;
+  string idempotency_key = 100;
+}
+
+message RepayLoanResponse {
+  string transaction_id = 1;
+  string remaining_principal = 2;
+  string remaining_interest = 3;
+  string status = 4;
+}
+
+// ─── Overdue ───
+
+message MarkOverdueRequest {
+  string loan_id = 1;
+  string loan_account_id = 2;
+  string overdue_date = 3;
+  string principal_overdue = 4;    // сумма просроченного тела
+  string interest_overdue = 5;     // сумма просроченных процентов
+  string idempotency_key = 100;
+}
+
+message MarkOverdueResponse {
+  string transaction_id = 1;
+  string status = 2;
+}
+
+// ─── Provision ───
+
+message CalculateProvisionRequest {
+  string loan_id = 1;
+  string loan_account_id = 2;
+  string category = 3;             // standard / substandard / doubtful / bad
+  string idempotency_key = 100;
+}
+
+message CalculateProvisionResponse {
+  string provision_amount = 1;
+  string category = 2;
+  string status = 3;
+}
+
+// ─── State ───
+
+message GetLoanAccountStateRequest {
+  string loan_account_id = 1;
+}
+
+message GetLoanAccountStateResponse {
+  string loan_account_id = 1;
+  string loan_id = 2;
+  string client_id = 3;
+  string currency_code = 4;
+  string principal_balance = 5;
+  string interest_accrued = 6;
+  string interest_overdue = 7;
+  string principal_overdue = 8;
+  string penalty_accrued = 9;
+  string provision_amount = 10;
+  string status = 11;              // active / overdue / closed
+  string opened_at = 12;
+}
