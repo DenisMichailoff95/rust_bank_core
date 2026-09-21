@@ -23,8 +23,10 @@ pub struct TransactionRepository {
     pub client: Client,
 }
 
-fn custom_error(msg: impl Into<String>) -> YdbError {
-    YdbError::Custom(msg.into())
+/// Хелпер для бизнес-ошибок. Возвращает `YdbOrCustomerError`,
+/// потому что `retry_transaction` ожидает именно этот тип от замыкания.
+fn custom_error(msg: impl Into<String>) -> YdbOrCustomerError {
+    YdbError::Custom(msg.into()).into()
 }
 
 impl TransactionRepository {
@@ -78,7 +80,7 @@ impl TransactionRepository {
                         )
                         .await?;
 
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let balance_str: String =
                         row.remove_field_by_name("balance")?.try_into()?;
                     let acc_ccy: String =

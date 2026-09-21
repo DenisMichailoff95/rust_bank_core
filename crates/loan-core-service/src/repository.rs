@@ -30,8 +30,10 @@ pub struct LoanCoreRepository {
     pub client: Client,
 }
 
-fn custom_error(msg: impl Into<String>) -> YdbError {
-    YdbError::Custom(msg.into())
+/// Хелпер для бизнес-ошибок. Возвращает `YdbOrCustomerError`,
+/// потому что `retry_transaction` ожидает именно этот тип от замыкания.
+fn custom_error(msg: impl Into<String>) -> YdbOrCustomerError {
+    YdbError::Custom(msg.into()).into()
 }
 
 impl LoanCoreRepository {
@@ -152,7 +154,7 @@ impl LoanCoreRepository {
                             ).with_params(ydb_params!("$id" => laid.clone())),
                         )
                         .await?;
-                    let la_row = la_res.into_only_row()?;
+                    let mut la_row = la_res.into_only_row()?;
                     let la_balance: String =
                         la_row.remove_field_by_name("principal_balance")?.try_into()?;
                     let la_ccy: String =
@@ -174,7 +176,7 @@ impl LoanCoreRepository {
                             ).with_params(ydb_params!("$id" => caid.clone())),
                         )
                         .await?;
-                    let ca_row = ca_res.into_only_row()?;
+                    let mut ca_row = ca_res.into_only_row()?;
                     let ca_balance_str: String =
                         ca_row.remove_field_by_name("balance")?.try_into()?;
                     let ca_ccy: String =
@@ -304,7 +306,7 @@ impl LoanCoreRepository {
                             ).with_params(ydb_params!("$id" => laid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let principal_str: String =
                         row.remove_field_by_name("principal_balance")?.try_into()?;
                     let interest_str: String =
@@ -425,7 +427,7 @@ impl LoanCoreRepository {
                             ).with_params(ydb_params!("$id" => laid.clone())),
                         )
                         .await?;
-                    let la_row = la_res.into_only_row()?;
+                    let mut la_row = la_res.into_only_row()?;
                     let la_principal: String =
                         la_row.remove_field_by_name("principal_balance")?.try_into()?;
                     let la_interest: String =
@@ -570,7 +572,7 @@ impl LoanCoreRepository {
                             ).with_params(ydb_params!("$id" => laid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let po: String =
                         row.remove_field_by_name("principal_overdue")?.try_into()?;
                     let io: String =
@@ -642,7 +644,7 @@ impl LoanCoreRepository {
                             ).with_params(ydb_params!("$id" => laid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let principal: String =
                         row.remove_field_by_name("principal_balance")?.try_into()?;
                     let po: String =

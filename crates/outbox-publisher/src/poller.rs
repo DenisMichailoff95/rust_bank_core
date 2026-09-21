@@ -3,13 +3,16 @@ use crate::repository::OutboxRepository;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::interval;
-use tracing::{error, info, warn};
+use tracing::{error, info};
+
+#[cfg(feature = "kafka")]
+use tracing::warn;
 
 const MAX_RETRIES: u32 = 5;
 
 pub async fn run_poller(
     repo: Arc<OutboxRepository>,
-    batch_size: i64,
+    batch_size: u64,
     poll_interval_ms: u64,
     kafka_topic: String,
 ) {
@@ -39,7 +42,7 @@ pub async fn run_poller(
         // Каждые 20 итераций обновляем метрику pending
         if metrics_tick % 20 == 0 {
             if let Ok(cnt) = repo.count_pending().await {
-                OUTBOX_PENDING.set(cnt);
+                OUTBOX_PENDING.set(cnt as f64);
             }
         }
 
@@ -85,6 +88,7 @@ pub async fn run_poller(
 
             #[cfg(not(feature = "kafka"))]
             {
+                let _ = &kafka_topic;
                 info!(
                     "Event: {} {} {}",
                     event.event_type, event.aggregate_id, event.event_id

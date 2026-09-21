@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         axum::serve(listener, metrics_app).await.unwrap();
     });
 
-    let batch_size: i64 = std::env::var("OUTBOX_BATCH_SIZE")
+    let batch_size: u64 = std::env::var("OUTBOX_BATCH_SIZE")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(100);

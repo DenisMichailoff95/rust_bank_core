@@ -1,5 +1,8 @@
 use axum::{routing::get, Router};
-use prometheus::{Encoder, IntCounter, Histogram, Opts, TextEncoder, Gauge, register_gauge, register_histogram, register_int_counter};
+use prometheus::{
+    register_gauge, register_histogram, register_int_counter, Encoder, Gauge, Histogram,
+    IntCounter, TextEncoder,
+};
 
 lazy_static::lazy_static! {
     pub static ref OUTBOX_PUBLISHED: IntCounter = register_int_counter!(

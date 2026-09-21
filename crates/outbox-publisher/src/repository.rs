@@ -28,7 +28,7 @@ impl OutboxRepository {
         Ok(Self { client })
     }
 
-    pub async fn fetch_pending(&self, limit: i64) -> RepoResult<Vec<OutboxEvent>> {
+    pub async fn fetch_pending(&self, limit: u64) -> RepoResult<Vec<OutboxEvent>> {
         let result = self
             .client
             .table_client()

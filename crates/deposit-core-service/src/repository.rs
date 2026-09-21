@@ -31,8 +31,10 @@ pub struct DepositCoreRepository {
     pub client: Client,
 }
 
-fn custom_error(msg: impl Into<String>) -> YdbError {
-    YdbError::Custom(msg.into())
+/// Хелпер для бизнес-ошибок. Возвращает `YdbOrCustomerError`,
+/// потому что `retry_transaction` ожидает именно этот тип от замыкания.
+fn custom_error(msg: impl Into<String>) -> YdbOrCustomerError {
+    YdbError::Custom(msg.into()).into()
 }
 
 impl DepositCoreRepository {
@@ -92,7 +94,7 @@ impl DepositCoreRepository {
                             ).with_params(ydb_params!("$id" => caid.clone())),
                         )
                         .await?;
-                    let ca_row = ca_res.into_only_row()?;
+                    let mut ca_row = ca_res.into_only_row()?;
                     let ca_balance_str: String =
                         ca_row.remove_field_by_name("balance")?.try_into()?;
                     let ca_ccy: String =
@@ -232,7 +234,7 @@ impl DepositCoreRepository {
                             ).with_params(ydb_params!("$id" => daid.clone())),
                         )
                         .await?;
-                    let da_row = da_res.into_only_row()?;
+                    let mut da_row = da_res.into_only_row()?;
                     let da_balance: String =
                         da_row.remove_field_by_name("principal_balance")?.try_into()?;
                     let da_ccy: String =
@@ -362,7 +364,7 @@ impl DepositCoreRepository {
                             ).with_params(ydb_params!("$id" => daid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let principal_str: String =
                         row.remove_field_by_name("principal_balance")?.try_into()?;
                     let interest_str: String =
@@ -470,7 +472,7 @@ impl DepositCoreRepository {
                             ).with_params(ydb_params!("$id" => daid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let principal_str: String =
                         row.remove_field_by_name("principal_balance")?.try_into()?;
                     let interest_str: String =
@@ -587,7 +589,7 @@ impl DepositCoreRepository {
                             ).with_params(ydb_params!("$id" => daid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let interest_str: String =
                         row.remove_field_by_name("interest_accrued")?.try_into()?;
                     let paid_str: String =
@@ -711,7 +713,7 @@ impl DepositCoreRepository {
                             ).with_params(ydb_params!("$id" => daid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let principal_str: String =
                         row.remove_field_by_name("principal_balance")?.try_into()?;
                     let _accrued_str: String =
@@ -929,7 +931,7 @@ impl DepositCoreRepository {
                             ).with_params(ydb_params!("$id" => daid.clone())),
                         )
                         .await?;
-                    let row = res.into_only_row()?;
+                    let mut row = res.into_only_row()?;
                     let principal_str: String =
                         row.remove_field_by_name("principal_balance")?.try_into()?;
                     let interest_str: String =
