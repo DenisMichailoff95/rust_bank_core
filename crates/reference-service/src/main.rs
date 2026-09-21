@@ -33,7 +33,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let repo = Arc::new(ReferenceRepository::new(&ydb_config).await?);
 
-    // Первичная загрузка кэша
     let shared_cache = new_shared_cache();
     {
         let currencies = repo.load_currencies().await?;
@@ -47,7 +46,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Периодический refresh кэша
     let refresh_repo = repo.clone();
     let refresh_cache = shared_cache.clone();
     let refresh_interval_sec: u64 = std::env::var("REFERENCE_REFRESH_SEC")
@@ -57,7 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(refresh_interval_sec));
-        // Пропускаем первый tick (кэш уже загружен)
         ticker.tick().await;
         loop {
             ticker.tick().await;

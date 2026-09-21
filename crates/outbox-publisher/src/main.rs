@@ -16,11 +16,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let ydb_config = YdbConfig::from_env();
-    tracing::info!("Outbox Publisher connecting to YDB: {}", ydb_config.connection_string);
+    tracing::info!(
+        "Outbox Publisher connecting to YDB: {}",
+        ydb_config.connection_string
+    );
 
     let repo = Arc::new(repository::OutboxRepository::new(&ydb_config).await?);
 
-    // Метрики + health endpoint
     let metrics_addr = std::env::var("METRICS_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:9100".into());
     let metrics_app = metrics::router();
@@ -30,7 +32,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         axum::serve(listener, metrics_app).await.unwrap();
     });
 
-    // Настройки поллера
     let batch_size: i64 = std::env::var("OUTBOX_BATCH_SIZE")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -44,16 +45,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!(
         "Outbox Publisher started: batch={}, interval={}ms, topic={}",
-        batch_size, poll_interval_ms, kafka_topic
+        batch_size,
+        poll_interval_ms,
+        kafka_topic
     );
 
     let shutdown = async {
         let mut sigterm = tokio::signal::unix::signal(
             tokio::signal::unix::SignalKind::terminate(),
-        ).unwrap();
+        )
+            .unwrap();
         let mut sigint = tokio::signal::unix::signal(
             tokio::signal::unix::SignalKind::interrupt(),
-        ).unwrap();
+        )
+            .unwrap();
         tokio::select! {
             _ = sigterm.recv() => tracing::info!("SIGTERM received"),
             _ = sigint.recv() => tracing::info!("SIGINT received"),

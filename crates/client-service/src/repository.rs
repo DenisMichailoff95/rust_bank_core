@@ -1,7 +1,9 @@
 use common::config::YdbConfig;
 use common::ydb_client::create_ydb_client;
 use serde::{Deserialize, Serialize};
-use ydb::{Client, Query, YdbResult};
+use ydb::{ydb_params, Client, Query, YdbOrCustomerError};
+
+type RepoResult<T> = Result<T, YdbOrCustomerError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientRecord {
@@ -16,14 +18,15 @@ pub struct ClientRecord {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone)]
 pub struct ClientRepository {
     pub client: Client,
 }
 
 impl ClientRepository {
-    pub async fn new(config: &YdbConfig) -> YdbResult<Self> {
-        let client = create_ydb_client(config).await?;
+    pub async fn new(config: &YdbConfig) -> RepoResult<Self> {
+        let client = create_ydb_client(config)
+            .await
+            .map_err(YdbOrCustomerError::from)?;
         Ok(Self { client })
     }
 
@@ -31,7 +34,7 @@ impl ClientRepository {
         &self,
         record: &ClientRecord,
         event_payload: &str,
-    ) -> YdbResult<()> {
+    ) -> RepoResult<()> {
         let client_id = record.client_id.clone();
         let last_name = record.last_name.clone();
         let first_name = record.first_name.clone();
@@ -63,16 +66,17 @@ impl ClientRepository {
                         Query::from(
                             "UPSERT INTO clients (client_id, last_name, first_name, middle_name, birth_date, passport_series, passport_number, status, created_at) \
                              VALUES ($client_id, $last_name, $first_name, $middle_name, $birth_date, $passport_series, $passport_number, $status, $created_at)",
-                        )
-                            .param("$client_id", client_id.clone())
-                            .param("$last_name", last_name)
-                            .param("$first_name", first_name)
-                            .param("$middle_name", middle_name)
-                            .param("$birth_date", birth_date)
-                            .param("$passport_series", passport_series)
-                            .param("$passport_number", passport_number)
-                            .param("$status", status)
-                            .param("$created_at", created_at),
+                        ).with_params(ydb_params!(
+                            "$client_id" => client_id.clone(),
+                            "$last_name" => last_name,
+                            "$first_name" => first_name,
+                            "$middle_name" => middle_name,
+                            "$birth_date" => birth_date,
+                            "$passport_series" => passport_series,
+                            "$passport_number" => passport_number,
+                            "$status" => status,
+                            "$created_at" => created_at
+                        )),
                     )
                         .await?;
 
@@ -80,11 +84,12 @@ impl ClientRepository {
                         Query::from(
                             "UPSERT INTO outbox (event_id, aggregate_type, aggregate_id, event_type, payload, status, created_at, retry_count) \
                              VALUES ($event_id, 'client', $client_id, 'ClientCreated', $payload, 'PENDING', $created_at, 0)",
-                        )
-                            .param("$event_id", event_id)
-                            .param("$client_id", client_id)
-                            .param("$payload", payload)
-                            .param("$created_at", created_at),
+                        ).with_params(ydb_params!(
+                            "$event_id" => event_id,
+                            "$client_id" => client_id,
+                            "$payload" => payload,
+                            "$created_at" => created_at
+                        )),
                     )
                         .await?;
 
@@ -94,7 +99,7 @@ impl ClientRepository {
             .await
     }
 
-    pub async fn get_client(&self, client_id: &str) -> YdbResult<Option<ClientRecord>> {
+    pub async fn get_client(&self, client_id: &str) -> RepoResult<Option<ClientRecord>> {
         let cid = client_id.to_string();
         let result = self
             .client
@@ -107,8 +112,7 @@ impl ClientRepository {
                             Query::from(
                                 "SELECT client_id, last_name, first_name, middle_name, birth_date, passport_series, passport_number, status, created_at \
                                  FROM clients WHERE client_id = $client_id",
-                            )
-                                .param("$client_id", cid),
+                            ).with_params(ydb_params!("$client_id" => cid)),
                         )
                         .await?;
                     Ok(res)
@@ -116,22 +120,34 @@ impl ClientRepository {
             })
             .await?;
 
-        let rows: Vec<_> = result.into_iter().collect();
+        let rows: Vec<_> = result.into_only_result()?.rows().collect();
         if rows.is_empty() {
             return Ok(None);
         }
+        let mut row = rows.into_iter().next().unwrap();
 
-        let row = &rows[0];
         Ok(Some(ClientRecord {
-            client_id: row.get("client_id")?.try_into()?,
-            last_name: row.get("last_name")?.try_into()?,
-            first_name: row.get("first_name")?.try_into()?,
-            middle_name: row.get("middle_name").ok().and_then(|v| v.try_into().ok()),
-            birth_date: row.get("birth_date").ok().and_then(|v| v.try_into().ok()),
-            passport_series: row.get("passport_series").ok().and_then(|v| v.try_into().ok()),
-            passport_number: row.get("passport_number").ok().and_then(|v| v.try_into().ok()),
-            status: row.get("status")?.try_into()?,
-            created_at: row.get("created_at")?.try_into()?,
+            client_id: row.remove_field_by_name("client_id")?.try_into()?,
+            last_name: row.remove_field_by_name("last_name")?.try_into()?,
+            first_name: row.remove_field_by_name("first_name")?.try_into()?,
+            middle_name: row
+                .remove_field_by_name("middle_name")
+                .ok()
+                .and_then(|v| v.try_into().ok()),
+            birth_date: row
+                .remove_field_by_name("birth_date")
+                .ok()
+                .and_then(|v| v.try_into().ok()),
+            passport_series: row
+                .remove_field_by_name("passport_series")
+                .ok()
+                .and_then(|v| v.try_into().ok()),
+            passport_number: row
+                .remove_field_by_name("passport_number")
+                .ok()
+                .and_then(|v| v.try_into().ok()),
+            status: row.remove_field_by_name("status")?.try_into()?,
+            created_at: row.remove_field_by_name("created_at")?.try_into()?,
         }))
     }
 
@@ -140,7 +156,7 @@ impl ClientRepository {
         client_id: &str,
         new_status: &str,
         event_payload: &str,
-    ) -> YdbResult<String> {
+    ) -> RepoResult<String> {
         let cid = client_id.to_string();
         let ns = new_status.to_string();
         let event_id = uuid::Uuid::new_v4().to_string();
@@ -158,8 +174,9 @@ impl ClientRepository {
                 async move {
                     let res = t
                         .query(
-                            Query::from("SELECT status FROM clients WHERE client_id = $client_id")
-                                .param("$client_id", cid.clone()),
+                            Query::from(
+                                "SELECT status FROM clients WHERE client_id = $client_id",
+                            ).with_params(ydb_params!("$client_id" => cid.clone())),
                         )
                         .await?;
                     let old_status: String = res
@@ -170,9 +187,10 @@ impl ClientRepository {
                     t.query(
                         Query::from(
                             "UPDATE clients SET status = $status WHERE client_id = $client_id",
-                        )
-                            .param("$status", ns.clone())
-                            .param("$client_id", cid.clone()),
+                        ).with_params(ydb_params!(
+                            "$status" => ns.clone(),
+                            "$client_id" => cid.clone()
+                        )),
                     )
                         .await?;
 
@@ -180,11 +198,12 @@ impl ClientRepository {
                         Query::from(
                             "UPSERT INTO outbox (event_id, aggregate_type, aggregate_id, event_type, payload, status, created_at, retry_count) \
                              VALUES ($event_id, 'client', $client_id, 'ClientStatusChanged', $payload, 'PENDING', $created_at, 0)",
-                        )
-                            .param("$event_id", event_id.clone())
-                            .param("$client_id", cid.clone())
-                            .param("$payload", payload.clone())
-                            .param("$created_at", now),
+                        ).with_params(ydb_params!(
+                            "$event_id" => event_id.clone(),
+                            "$client_id" => cid.clone(),
+                            "$payload" => payload.clone(),
+                            "$created_at" => now
+                        )),
                     )
                         .await?;
 

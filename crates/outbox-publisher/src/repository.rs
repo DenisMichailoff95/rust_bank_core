@@ -1,7 +1,9 @@
 use common::config::YdbConfig;
 use common::ydb_client::create_ydb_client;
 use serde::{Deserialize, Serialize};
-use ydb::{Client, Query, YdbResult};
+use ydb::{ydb_params, Client, Query, YdbOrCustomerError};
+
+type RepoResult<T> = Result<T, YdbOrCustomerError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboxEvent {
@@ -14,19 +16,19 @@ pub struct OutboxEvent {
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone)]
 pub struct OutboxRepository {
     client: Client,
 }
 
 impl OutboxRepository {
-    pub async fn new(config: &YdbConfig) -> YdbResult<Self> {
-        let client = create_ydb_client(config).await?;
+    pub async fn new(config: &YdbConfig) -> RepoResult<Self> {
+        let client = create_ydb_client(config)
+            .await
+            .map_err(YdbOrCustomerError::from)?;
         Ok(Self { client })
     }
 
-    /// Читает батч PENDING-событий. PK outbox = (event_id), вторичный индекс по (status, created_at).
-    pub async fn fetch_pending(&self, limit: i64) -> YdbResult<Vec<OutboxEvent>> {
+    pub async fn fetch_pending(&self, limit: i64) -> RepoResult<Vec<OutboxEvent>> {
         let result = self
             .client
             .table_client()
@@ -38,8 +40,7 @@ impl OutboxRepository {
                              FROM outbox WHERE status = 'PENDING' \
                              ORDER BY created_at \
                              LIMIT $limit",
-                        )
-                            .param("$limit", limit),
+                        ).with_params(ydb_params!("$limit" => limit)),
                     )
                     .await?;
                 Ok(res)
@@ -47,22 +48,25 @@ impl OutboxRepository {
             .await?;
 
         let mut events = Vec::new();
-        for row in result.into_iter() {
+        for mut row in result.into_only_result()?.rows() {
             events.push(OutboxEvent {
-                event_id: row.get("event_id")?.try_into()?,
-                aggregate_type: row.get("aggregate_type")?.try_into()?,
-                aggregate_id: row.get("aggregate_id")?.try_into()?,
-                event_type: row.get("event_type")?.try_into()?,
-                payload: row.get("payload")?.try_into()?,
-                created_at: row.get("created_at")?.try_into()?,
-                retry_count: row.get("retry_count").ok().and_then(|v| v.try_into().ok()).unwrap_or(0),
+                event_id: row.remove_field_by_name("event_id")?.try_into()?,
+                aggregate_type: row.remove_field_by_name("aggregate_type")?.try_into()?,
+                aggregate_id: row.remove_field_by_name("aggregate_id")?.try_into()?,
+                event_type: row.remove_field_by_name("event_type")?.try_into()?,
+                payload: row.remove_field_by_name("payload")?.try_into()?,
+                created_at: row.remove_field_by_name("created_at")?.try_into()?,
+                retry_count: row
+                    .remove_field_by_name("retry_count")
+                    .ok()
+                    .and_then(|v| v.try_into().ok())
+                    .unwrap_or(0),
             });
         }
         Ok(events)
     }
 
-    /// Помечает событие как SENT. Обновление по event_id (PK).
-    pub async fn mark_sent(&self, event_id: &str) -> YdbResult<()> {
+    pub async fn mark_sent(&self, event_id: &str) -> RepoResult<()> {
         let eid = event_id.to_string();
         let now = chrono::Utc::now().timestamp();
         self.client
@@ -74,9 +78,10 @@ impl OutboxRepository {
                         Query::from(
                             "UPDATE outbox SET status = 'SENT', sent_at = $sent_at \
                              WHERE event_id = $event_id",
-                        )
-                            .param("$sent_at", now)
-                            .param("$event_id", eid),
+                        ).with_params(ydb_params!(
+                            "$sent_at" => now,
+                            "$event_id" => eid
+                        )),
                     )
                         .await?;
                     Ok(())
@@ -85,19 +90,18 @@ impl OutboxRepository {
             .await
     }
 
-    /// Увеличивает retry_count. Если превышен лимит — помечает FAILED.
-    pub async fn mark_retry(&self, event_id: &str, max_retries: u32) -> YdbResult<()> {
+    pub async fn mark_retry(&self, event_id: &str, max_retries: u32) -> RepoResult<()> {
         let eid = event_id.to_string();
         self.client
             .table_client()
             .retry_transaction(|mut t| {
                 let eid = eid.clone();
                 async move {
-                    // Читаем текущий retry_count
                     let res = t
                         .query(
-                            Query::from("SELECT retry_count FROM outbox WHERE event_id = $event_id")
-                                .param("$event_id", eid.clone()),
+                            Query::from(
+                                "SELECT retry_count FROM outbox WHERE event_id = $event_id",
+                            ).with_params(ydb_params!("$event_id" => eid.clone())),
                         )
                         .await?;
                     let current: u32 = res
@@ -115,10 +119,11 @@ impl OutboxRepository {
                         Query::from(
                             "UPDATE outbox SET retry_count = $retry_count, status = $status \
                              WHERE event_id = $event_id",
-                        )
-                            .param("$retry_count", current + 1)
-                            .param("$status", new_status)
-                            .param("$event_id", eid),
+                        ).with_params(ydb_params!(
+                            "$retry_count" => current + 1,
+                            "$status" => new_status,
+                            "$event_id" => eid
+                        )),
                     )
                         .await?;
                     Ok(())
@@ -127,8 +132,7 @@ impl OutboxRepository {
             .await
     }
 
-    /// Количество PENDING — для метрик
-    pub async fn count_pending(&self) -> YdbResult<i64> {
+    pub async fn count_pending(&self) -> RepoResult<i64> {
         let result = self
             .client
             .table_client()

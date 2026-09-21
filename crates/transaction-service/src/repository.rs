@@ -3,7 +3,9 @@ use common::ydb_client::create_ydb_client;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use ydb::{Client, Query, YdbResult};
+use ydb::{ydb_params, Client, Query, YdbError, YdbOrCustomerError};
+
+type RepoResult<T> = Result<T, YdbOrCustomerError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionRecord {
@@ -17,14 +19,19 @@ pub struct TransactionRecord {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone)]
 pub struct TransactionRepository {
     pub client: Client,
 }
 
+fn custom_error(msg: impl Into<String>) -> YdbError {
+    YdbError::Custom(msg.into())
+}
+
 impl TransactionRepository {
-    pub async fn new(config: &YdbConfig) -> YdbResult<Self> {
-        let client = create_ydb_client(config).await?;
+    pub async fn new(config: &YdbConfig) -> RepoResult<Self> {
+        let client = create_ydb_client(config)
+            .await
+            .map_err(YdbOrCustomerError::from)?;
         Ok(Self { client })
     }
 
@@ -37,7 +44,7 @@ impl TransactionRepository {
         description: Option<&str>,
         direction: &str,
         event_payload: &str,
-    ) -> YdbResult<(String, String)> {
+    ) -> RepoResult<(String, String)> {
         let aid = account_id.to_string();
         let op_code = operation_code.to_string();
         let amount_str = amount.to_string();
@@ -67,54 +74,47 @@ impl TransactionRepository {
                         .query(
                             Query::from(
                                 "SELECT balance, currency_code FROM accounts WHERE account_id = $account_id",
-                            )
-                                .param("$account_id", aid.clone()),
+                            ).with_params(ydb_params!("$account_id" => aid.clone())),
                         )
                         .await?;
 
                     let row = res.into_only_row()?;
-                    let balance_str: String = row.get("balance")?.try_into()?;
-                    let acc_ccy: String = row.get("currency_code")?.try_into()?;
+                    let balance_str: String =
+                        row.remove_field_by_name("balance")?.try_into()?;
+                    let acc_ccy: String =
+                        row.remove_field_by_name("currency_code")?.try_into()?;
 
                     if acc_ccy != ccy {
-                        return Err(ydb::YdbOrCustomerError::from(
-                            ydb::YdbStatusError {
-                                message: format!(
-                                    "Currency mismatch: account {} vs tx {}",
-                                    acc_ccy, ccy
-                                ),
-                                ..Default::default()
-                            },
-                        ));
+                        return Err(custom_error(format!(
+                            "Currency mismatch: account {} vs tx {}",
+                            acc_ccy, ccy
+                        )));
                     }
 
-                    let current = Decimal::from_str(&balance_str).map_err(|e| {
-                        ydb::YdbOrCustomerError::from(ydb::YdbStatusError {
-                            message: format!("Invalid balance: {}", e),
-                            ..Default::default()
-                        })
-                    })?;
+                    let current = Decimal::from_str(&balance_str)
+                        .map_err(|e| custom_error(format!("Invalid balance: {e}")))?;
 
                     let delta = Decimal::from_str(&amount_str).unwrap();
                     let new_balance = match dir.as_str() {
                         "credit" => current + delta,
-                        "debit" => current - delta,
+                        "debit" => {
+                            if current < delta {
+                                return Err(custom_error("Insufficient funds"));
+                            }
+                            current - delta
+                        }
                         _ => {
-                            return Err(ydb::YdbOrCustomerError::from(
-                                ydb::YdbStatusError {
-                                    message: format!("Unknown direction: {}", dir),
-                                    ..Default::default()
-                                },
-                            ));
+                            return Err(custom_error(format!("Unknown direction: {dir}")));
                         }
                     };
 
                     t.query(
                         Query::from(
                             "UPDATE accounts SET balance = $balance WHERE account_id = $account_id",
-                        )
-                            .param("$balance", new_balance.to_string())
-                            .param("$account_id", aid.clone()),
+                        ).with_params(ydb_params!(
+                            "$balance" => new_balance.to_string(),
+                            "$account_id" => aid.clone()
+                        )),
                     )
                         .await?;
 
@@ -122,15 +122,16 @@ impl TransactionRepository {
                         Query::from(
                             "UPSERT INTO transactions (account_id, created_at, transaction_id, operation_code, amount, currency_code, status, description) \
                              VALUES ($account_id, $created_at, $transaction_id, $operation_code, $amount, $currency_code, $status, $description)",
-                        )
-                            .param("$account_id", aid.clone())
-                            .param("$created_at", now)
-                            .param("$transaction_id", tx_id.clone())
-                            .param("$operation_code", op_code.clone())
-                            .param("$amount", amount_str.clone())
-                            .param("$currency_code", ccy.clone())
-                            .param("$status", "completed")
-                            .param("$description", desc.clone()),
+                        ).with_params(ydb_params!(
+                            "$account_id" => aid.clone(),
+                            "$created_at" => now,
+                            "$transaction_id" => tx_id.clone(),
+                            "$operation_code" => op_code.clone(),
+                            "$amount" => amount_str.clone(),
+                            "$currency_code" => ccy.clone(),
+                            "$status" => "completed",
+                            "$description" => desc.clone()
+                        )),
                     )
                         .await?;
 
@@ -138,11 +139,12 @@ impl TransactionRepository {
                         Query::from(
                             "UPSERT INTO outbox (event_id, aggregate_type, aggregate_id, event_type, payload, status, created_at, retry_count) \
                              VALUES ($event_id, 'transaction', $transaction_id, 'TransactionPosted', $payload, 'PENDING', $created_at, 0)",
-                        )
-                            .param("$event_id", event_id.clone())
-                            .param("$transaction_id", tx_id.clone())
-                            .param("$payload", payload.clone())
-                            .param("$created_at", now),
+                        ).with_params(ydb_params!(
+                            "$event_id" => event_id.clone(),
+                            "$transaction_id" => tx_id.clone(),
+                            "$payload" => payload.clone(),
+                            "$created_at" => now
+                        )),
                     )
                         .await?;
 
@@ -156,7 +158,7 @@ impl TransactionRepository {
         &self,
         account_id: &str,
         transaction_id: &str,
-    ) -> YdbResult<Option<TransactionRecord>> {
+    ) -> RepoResult<Option<TransactionRecord>> {
         let aid = account_id.to_string();
         let tid = transaction_id.to_string();
         let result = self
@@ -171,9 +173,10 @@ impl TransactionRepository {
                             Query::from(
                                 "SELECT account_id, transaction_id, operation_code, amount, currency_code, status, created_at, description \
                                  FROM transactions WHERE account_id = $account_id AND transaction_id = $transaction_id",
-                            )
-                                .param("$account_id", aid)
-                                .param("$transaction_id", tid),
+                            ).with_params(ydb_params!(
+                                "$account_id" => aid,
+                                "$transaction_id" => tid
+                            )),
                         )
                         .await?;
                     Ok(res)
@@ -181,21 +184,23 @@ impl TransactionRepository {
             })
             .await?;
 
-        let rows: Vec<_> = result.into_iter().collect();
+        let rows: Vec<_> = result.into_only_result()?.rows().collect();
         if rows.is_empty() {
             return Ok(None);
         }
-
-        let row = &rows[0];
+        let mut row = rows.into_iter().next().unwrap();
         Ok(Some(TransactionRecord {
-            account_id: row.get("account_id")?.try_into()?,
-            transaction_id: row.get("transaction_id")?.try_into()?,
-            operation_code: row.get("operation_code")?.try_into()?,
-            amount: row.get("amount")?.try_into()?,
-            currency_code: row.get("currency_code")?.try_into()?,
-            status: row.get("status")?.try_into()?,
-            created_at: row.get("created_at")?.try_into()?,
-            description: row.get("description").ok().and_then(|v| v.try_into().ok()),
+            account_id: row.remove_field_by_name("account_id")?.try_into()?,
+            transaction_id: row.remove_field_by_name("transaction_id")?.try_into()?,
+            operation_code: row.remove_field_by_name("operation_code")?.try_into()?,
+            amount: row.remove_field_by_name("amount")?.try_into()?,
+            currency_code: row.remove_field_by_name("currency_code")?.try_into()?,
+            status: row.remove_field_by_name("status")?.try_into()?,
+            created_at: row.remove_field_by_name("created_at")?.try_into()?,
+            description: row
+                .remove_field_by_name("description")
+                .ok()
+                .and_then(|v| v.try_into().ok()),
         }))
     }
 
@@ -203,9 +208,9 @@ impl TransactionRepository {
         &self,
         account_id: &str,
         limit: i32,
-    ) -> YdbResult<Vec<TransactionRecord>> {
+    ) -> RepoResult<Vec<TransactionRecord>> {
         let aid = account_id.to_string();
-        let lim = limit.max(1).min(1000) as u64;
+        let lim = limit.max(1).min(1000) as i64;
         let result = self
             .client
             .table_client()
@@ -217,9 +222,10 @@ impl TransactionRepository {
                             Query::from(
                                 "SELECT account_id, transaction_id, operation_code, amount, currency_code, status, created_at, description \
                                  FROM transactions WHERE account_id = $account_id ORDER BY created_at DESC LIMIT $limit",
-                            )
-                                .param("$account_id", aid)
-                                .param("$limit", lim as i64),
+                            ).with_params(ydb_params!(
+                                "$account_id" => aid,
+                                "$limit" => lim
+                            )),
                         )
                         .await?;
                     Ok(res)
@@ -228,16 +234,19 @@ impl TransactionRepository {
             .await?;
 
         let mut records = Vec::new();
-        for row in result.into_iter() {
+        for mut row in result.into_only_result()?.rows() {
             records.push(TransactionRecord {
-                account_id: row.get("account_id")?.try_into()?,
-                transaction_id: row.get("transaction_id")?.try_into()?,
-                operation_code: row.get("operation_code")?.try_into()?,
-                amount: row.get("amount")?.try_into()?,
-                currency_code: row.get("currency_code")?.try_into()?,
-                status: row.get("status")?.try_into()?,
-                created_at: row.get("created_at")?.try_into()?,
-                description: row.get("description").ok().and_then(|v| v.try_into().ok()),
+                account_id: row.remove_field_by_name("account_id")?.try_into()?,
+                transaction_id: row.remove_field_by_name("transaction_id")?.try_into()?,
+                operation_code: row.remove_field_by_name("operation_code")?.try_into()?,
+                amount: row.remove_field_by_name("amount")?.try_into()?,
+                currency_code: row.remove_field_by_name("currency_code")?.try_into()?,
+                status: row.remove_field_by_name("status")?.try_into()?,
+                created_at: row.remove_field_by_name("created_at")?.try_into()?,
+                description: row
+                    .remove_field_by_name("description")
+                    .ok()
+                    .and_then(|v| v.try_into().ok()),
             });
         }
         Ok(records)

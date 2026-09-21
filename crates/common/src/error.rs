@@ -16,3 +16,14 @@ pub enum CoreError {
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
+
+impl From<CoreError> for tonic::Status {
+    fn from(err: CoreError) -> Self {
+        match err {
+            CoreError::Ydb(e) => tonic::Status::internal(format!("YDB error: {e}")),
+            CoreError::NotFound(m) => tonic::Status::not_found(m),
+            CoreError::InvalidArgument(m) => tonic::Status::invalid_argument(m),
+            CoreError::Internal(m) => tonic::Status::internal(m),
+        }
+    }
+}

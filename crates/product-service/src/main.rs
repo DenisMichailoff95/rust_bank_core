@@ -34,7 +34,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let repo = Arc::new(ProductRepository::new(&ydb_config).await?);
 
-    // Первичная загрузка
     let shared_cache = new_shared_cache();
     {
         let products = repo.load_products().await?;
@@ -51,7 +50,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Периодический refresh
     let refresh_repo = repo.clone();
     let refresh_cache = shared_cache.clone();
     let refresh_interval_sec: u64 = std::env::var("PRODUCT_REFRESH_SEC")

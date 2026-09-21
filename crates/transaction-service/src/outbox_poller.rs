@@ -30,8 +30,7 @@ async fn fetch_pending_events(
                          FROM outbox WHERE status = 'PENDING' \
                          ORDER BY created_at \
                          LIMIT $limit",
-                    )
-                        .param("$limit", batch_size),
+                    ).with_params(ydb_params!("$limit" => batch_size))),
                 )
                 .await?;
             Ok(res)
@@ -41,12 +40,12 @@ async fn fetch_pending_events(
     let mut events = Vec::new();
     for row in result.into_iter() {
         events.push(OutboxEvent {
-            event_id: row.get("event_id")?.try_into()?,
-            aggregate_type: row.get("aggregate_type")?.try_into()?,
-            aggregate_id: row.get("aggregate_id")?.try_into()?,
-            event_type: row.get("event_type")?.try_into()?,
-            payload: row.get("payload")?.try_into()?,
-            created_at: row.get("created_at")?.try_into()?,
+            event_id: row.remove_field_by_name("event_id")?.try_into()?,
+            aggregate_type: row.remove_field_by_name("aggregate_type")?.try_into()?,
+            aggregate_id: row.remove_field_by_name("aggregate_id")?.try_into()?,
+            event_type: row.remove_field_by_name("event_type")?.try_into()?,
+            payload: row.remove_field_by_name("payload")?.try_into()?,
+            created_at: row.remove_field_by_name("created_at")?.try_into()?,
         });
     }
     Ok(events)
@@ -68,9 +67,7 @@ async fn mark_as_sent(
                     Query::from(
                         "UPDATE outbox SET status = 'SENT', sent_at = $sent_at \
                          WHERE status = 'PENDING' AND created_at = $created_at AND event_id = $event_id",
-                    )
-                        .param("$sent_at", now)
-                        .param("$created_at", 0_i64)  // нужен created_at из PK — упрощение
+                    ).with_params(ydb_params!("$sent_at" => now, "$created_at" => 0_i64)))// нужен created_at из PK — упрощение
                         .param("$event_id", eid),
                 )
                     .await?;
@@ -96,8 +93,7 @@ async fn increment_retry(
                     Query::from(
                         "UPDATE outbox SET retry_count = retry_count + 1 \
                          WHERE event_id = $event_id",
-                    )
-                        .param("$event_id", eid),
+                    ).with_params(ydb_params!("$event_id" => eid))),
                 )
                     .await?;
                 Ok(())

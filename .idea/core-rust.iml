@@ -8,6 +8,10 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/outbox-publisher/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/transaction-service/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/deposit-core-service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/loan-core-service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/product-service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/reference-service/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
