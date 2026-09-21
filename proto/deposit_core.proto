@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package bank.deposit_core.v1;
+
+service DepositCoreService {
+  // Открытие вклада
+  rpc OpenDeposit(OpenDepositRequest) returns (OpenDepositResponse);
+
+  // Пополнение вклада
+  rpc TopUpDeposit(TopUpDepositRequest) returns (TopUpDepositResponse);
+
+  // Начисление процентов за день
+  rpc AccrueInterest(AccrueInterestRequest) returns (AccrueInterestResponse);
+
+  // Капитализация процентов (причисление к телу вклада)
+  rpc CapitalizeInterest(CapitalizeInterestRequest) returns (CapitalizeInterestResponse);
+
+  // Выплата процентов на текущий счёт
+  rpc PayOutInterest(PayOutInterestRequest) returns (PayOutInterestResponse);
+
+  // Досрочное расторжение
+  rpc EarlyTerminate(EarlyTerminateRequest) returns (EarlyTerminateResponse);
+
+  // Пролонгация
+  rpc ProlongDeposit(ProlongDepositRequest) returns (ProlongDepositResponse);
+
+  // Закрытие вклада
+  rpc CloseDeposit(CloseDepositRequest) returns (CloseDepositResponse);
+
+  // Состояние вклада
+  rpc GetDepositState(GetDepositStateRequest) returns (GetDepositStateResponse);
+}
+
+// ─── Open ───
+
+message OpenDepositRequest {
+  string deposit_id = 1;             // ID договора вклада из мидла
+  string client_id = 2;
+  string client_account_id = 3;      // текущий счёт клиента (откуда списать тело)
+  string currency_code = 4;
+  string product_type = 5;           // savings / term / accumulative
+  string amount = 6;                 // Decimal как строка
+  string annual_rate = 7;            // % годовых
+  string term_months = 8;
+  bool capitalization = 9;           // капитализировать проценты?
+  string idempotency_key = 100;
+}
+
+message OpenDepositResponse {
+  string deposit_account_id = 1;
+  string account_number = 2;
+  string maturity_date = 3;
+  string status = 4;
+}
+
+// ─── Top Up ───
+
+message TopUpDepositRequest {
+  string deposit_id = 1;
+  string deposit_account_id = 2;
+  string client_account_id = 3;
+  string amount = 4;
+  string currency_code = 5;
+  string idempotency_key = 100;
+}
+
+message TopUpDepositResponse {
+  string transaction_id = 1;
+  string new_balance = 2;
+  string status = 3;
+}
+
+// ─── Accrue ───
+
+message AccrueInterestRequest {
+  string deposit_id = 1;
+  string deposit_account_id = 2;
+  string accrual_date = 3;
+  string annual_rate = 4;
+  string idempotency_key = 100;
+}
+
+message AccrueInterestResponse {
+  string transaction_id = 1;
+  string accrued_amount = 2;
+  string total_interest_accrued = 3;
+  string status = 4;
+}
+
+// ─── Capitalize ───
+
+message CapitalizeInterestRequest {
+  string deposit_id = 1;
+  string deposit_account_id = 2;
+  string idempotency_key = 100;
+}
+
+message CapitalizeInterestResponse {
+  string transaction_id = 1;
+  string capitalized_amount = 2;
+  string new_body = 3;
+  string status = 4;
+}
+
+// ─── Pay Out ───
+
+message PayOutInterestRequest {
+  string deposit_id = 1;
+  string deposit_account_id = 2;
+  string client_account_id = 3;
+  string idempotency_key = 100;
+}
+
+message PayOutInterestResponse {
+  string transaction_id = 1;
+  string paid_amount = 2;
+  string status = 3;
+}
+
+// ─── Early Terminate ───
+
+message EarlyTerminateRequest {
+  string deposit_id = 1;
+  string deposit_account_id = 2;
+  string client_account_id = 3;
+  string early_rate = 4;             // льготная ставка, % годовых
+  string termination_date = 5;
+  string idempotency_key = 100;
+}
+
+message EarlyTerminateResponse {
+  string transaction_id = 1;
+  string returned_body = 2;
+  string returned_interest = 3;
+  string status = 4;
+}
+
+// ─── Prolong ───
+
+message ProlongDepositRequest {
+  string deposit_id = 1;
+  string deposit_account_id = 2;
+  string new_term_months = 3;
+  string new_annual_rate = 4;
+  string idempotency_key = 100;
+}
+
+message ProlongDepositResponse {
+  string new_maturity_date = 1;
+  string status = 2;
+}
+
+// ─── Close ───
+
+message CloseDepositRequest {
+  string deposit_id = 1;
+  string deposit_account_id = 2;
+  string client_account_id = 3;
+  string idempotency_key = 100;
+}
+
+message CloseDepositResponse {
+  string transaction_id = 1;
+  string returned_body = 2;
+  string returned_interest = 3;
+  string status = 4;
+}
+
+// ─── State ───
+
+message GetDepositStateRequest {
+  string deposit_account_id = 1;
+}
+
+message GetDepositStateResponse {
+  string deposit_account_id = 1;
+  string deposit_id = 2;
+  string client_id = 3;
+  string currency_code = 4;
+  string principal_balance = 5;
+  string interest_accrued = 6;
+  string interest_paid = 7;
+  string annual_rate = 8;
+  string term_months = 9;
+  bool capitalization = 10;
+  string opened_at = 11;
+  string maturity_date = 12;
+  string status = 13;                // active / matured / closed / terminated
+}

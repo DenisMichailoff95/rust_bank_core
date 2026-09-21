@@ -1,0 +1,224 @@
+services:
+  # ============================================================
+  # YDB — локальный кластер
+  # ============================================================
+  ydb:
+    image: ydbplatform/local-ydb:latest
+    container_name: ydb-local
+    hostname: ydb
+    ports:
+      - "2136:2136"   # gRPC
+      - "8765:8765"   # HTTP UI
+    volumes:
+      - ydb_data:/ydb_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/2136"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  # ============================================================
+  # Миграции — одноразовый контейнер, применяет V1__init.sql
+  # ============================================================
+  ydb-migrations:
+    image: ydbplatform/local-ydb:latest
+    container_name: ydb-migrations
+    depends_on:
+      ydb:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint: >
+      bash -c "
+        /ydbwork/out/ydb/apps/ydb/ydb
+          --endpoint grpc://ydb:2136
+          --database /local
+          sql --script - < /migrations/V1__init.sql
+      "
+    restart: "no"
+
+  # ============================================================
+  # Reference Service — справочники (валюты, типы операций)
+  # ============================================================
+  reference-service:
+    build:
+      context: .
+      dockerfile: crates/reference-service/Dockerfile
+    container_name: reference-service
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - GRPC_ADDR=0.0.0.0:50054
+      - REFERENCE_REFRESH_SEC=300
+      - RUST_LOG=info
+    ports:
+      - "50054:50054"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Product Service — каталог продуктов, условий, тарифов
+  # ============================================================
+  product-service:
+    build:
+      context: .
+      dockerfile: crates/product-service/Dockerfile
+    container_name: product-service
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - GRPC_ADDR=0.0.0.0:50057
+      - PRODUCT_REFRESH_SEC=300
+      - RUST_LOG=info
+    ports:
+      - "50057:50057"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Client Service — клиенты
+  # ============================================================
+  client-service:
+    build:
+      context: .
+      dockerfile: crates/client-service/Dockerfile
+    container_name: client-service
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - GRPC_ADDR=0.0.0.0:50051
+      - RUST_LOG=info
+    ports:
+      - "50051:50051"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Account Service — счета
+  # ============================================================
+  account-service:
+    build:
+      context: .
+      dockerfile: crates/account-service/Dockerfile
+    container_name: account-service
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - GRPC_ADDR=0.0.0.0:50052
+      - RUST_LOG=info
+    ports:
+      - "50052:50052"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Transaction Service — проводки по счетам
+  # ============================================================
+  transaction-service:
+    build:
+      context: .
+      dockerfile: crates/transaction-service/Dockerfile
+    container_name: transaction-service
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - GRPC_ADDR=0.0.0.0:50053
+      - RUST_LOG=info
+    ports:
+      - "50053:50053"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Loan Core Service — ядро кредитов
+  # ============================================================
+  loan-core-service:
+    build:
+      context: .
+      dockerfile: crates/loan-core-service/Dockerfile
+    container_name: loan-core-service
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - GRPC_ADDR=0.0.0.0:50055
+      - RUST_LOG=info
+    ports:
+      - "50055:50055"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Deposit Core Service — ядро вкладов
+  # ============================================================
+  deposit-core-service:
+    build:
+      context: .
+      dockerfile: crates/deposit-core-service/Dockerfile
+    container_name: deposit-core-service
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - GRPC_ADDR=0.0.0.0:50056
+      - RUST_LOG=info
+    ports:
+      - "50056:50056"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ============================================================
+  # Outbox Publisher — публикация событий из outbox в Kafka
+  # ============================================================
+  outbox-publisher:
+    build:
+      context: .
+      dockerfile: crates/outbox-publisher/Dockerfile
+    container_name: outbox-publisher
+    environment:
+      - YDB_CONNECTION_STRING=grpc://ydb:2136?database=/local
+      - YDB_TOKEN=
+      - METRICS_ADDR=0.0.0.0:9100
+      - OUTBOX_BATCH_SIZE=100
+      - OUTBOX_POLL_INTERVAL_MS=500
+      - KAFKA_TOPIC=bank.events
+      - RUST_LOG=info
+    ports:
+      - "9100:9100"
+    depends_on:
+      ydb:
+        condition: service_healthy
+      ydb-migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  ydb_data:

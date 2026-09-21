@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package bank.transaction.v1;
+
+service TransactionService {
+  rpc PostTransaction(PostTransactionRequest) returns (PostTransactionResponse);
+  rpc GetTransaction(GetTransactionRequest) returns (GetTransactionResponse);
+  rpc ListAccountTransactions(ListAccountTransactionsRequest) returns (ListAccountTransactionsResponse);
+}
+
+message PostTransactionRequest {
+  string account_id = 1;
+  string operation_code = 2;       // SALARY, CARD_PAYMENT, TRANSFER_OUT, FEE...
+  string amount = 3;               // Decimal как строка
+  string currency_code = 4;
+  string description = 5;
+  string idempotency_key = 100;    // ключ идемпотентности
+}
+
+message PostTransactionResponse {
+  string transaction_id = 1;
+  string new_balance = 2;
+  string status = 3;
+}
+
+message GetTransactionRequest {
+  string account_id = 1;
+  string transaction_id = 2;
+}
+
+message GetTransactionResponse {
+  string transaction_id = 1;
+  string account_id = 2;
+  string operation_code = 3;
+  string operation_name = 4;
+  string direction = 5;            // debit / credit
+  string amount = 6;
+  string currency_code = 7;
+  string status = 8;
+  string created_at = 9;
+  string description = 10;
+}
+
+message ListAccountTransactionsRequest {
+  string account_id = 1;
+  string from_date = 2;            // ISO 8601
+  string to_date = 3;
+  int32 limit = 4;
+}
+
+message ListAccountTransactionsResponse {
+  repeated GetTransactionResponse transactions = 1;
+}

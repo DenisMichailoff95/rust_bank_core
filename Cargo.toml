@@ -1,0 +1,56 @@
+[workspace]
+members = [
+    "crates/common",
+    "crates/client-service",
+    "crates/account-service",
+    "crates/transaction-service",
+    "crates/outbox-publisher",
+    "crates/reference-service",
+    "crates/loan-core-service",
+    "crates/deposit-core-service",
+    "crates/product-service",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+# Внутренние
+common = { path = "crates/common" }
+client-service = { path = "crates/client-service" }
+account-service = { path = "crates/account-service" }
+transaction-service = { path = "crates/transaction-service" }
+outbox-publisher = { path = "crates/outbox-publisher" }
+reference-service = { path = "crates/reference-service" }
+
+# Внешние
+ydb = "0.13"
+tokio = { version = "1", features = ["full"] }
+tonic = "0.12"
+prost = "0.13"
+tonic-build = "0.12"
+tonic-health = "0.12"
+tonic-reflection = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rdkafka = { version = "0.36", features = ["cmake-build"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+thiserror = "1"
+anyhow = "1"
+rust_decimal = "1"
+prometheus = "0.13"
+axum = "0.7"
+lazy_static = "1"
+rand = "0.8"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }
+loan-core-service = { path = "crates/loan-core-service" }
+deposit-core-service = { path = "crates/deposit-core-service" }
+product-service = { path = "crates/product-service" }
+
+[profile.release]
+lto = true
+codegen-units = 1
